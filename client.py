@@ -81,6 +81,7 @@ if __name__ == '__main__':
 
     logger = get_logger()
     logger.info(f"starting script with args {args}")
+
     packets_to_send = mp.Queue(args.num_packets + args.num_threads)
     packets_received = q.Queue(args.num_packets)
     producers = [PacketMaker(packets_to_send, args.num_packets, args.packet_size, args.num_threads, logger)]
