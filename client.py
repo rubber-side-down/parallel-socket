@@ -79,9 +79,10 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, help='port number of host packets will be sent to')
     args = parser.parse_args()
 
+    logger = get_logger()
+    logger.info(f"starting script with args {args}")
     packets_to_send = mp.Queue(args.num_packets + args.num_threads)
     packets_received = q.Queue(args.num_packets)
-    logger = get_logger()
     producers = [PacketMaker(packets_to_send, args.num_packets, args.packet_size, args.num_threads, logger)]
     senders = [PacketSender(packets_to_send, packets_received, (args.host, args.port), args.packet_size, logger)
                for _ in range(args.num_threads)]
