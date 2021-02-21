@@ -25,18 +25,6 @@ class PacketMaker(mp.Process):
             self.num_packets_made += 1
 
 
-class PacketSenderMain(mp.Process):
-    def __init__(self, num_threads, task_queue, result_queue, addr, packet_size):
-        mp.Process.__init__(self)
-        self.workers = [PacketSender(task_queue, result_queue, addr, packet_size) for _ in range(num_threads)]
-
-    def run(self) -> None:
-        for worker in self.workers:
-            worker.start()
-        for worker in self.workers:
-            worker.join()
-
-
 class PacketSender(Thread):
     def __init__(self, task_queue, result_queue, addr, packet_size):
         Thread.__init__(self)
@@ -44,16 +32,22 @@ class PacketSender(Thread):
         self.result_queue = result_queue
         self.server_addr = addr
         self.packet_size = packet_size
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect(addr)
 
     def run(self):
         while True:
             packet = self.task_queue.get(timeout=1)
             if packet is None:
                 return
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect(self.server_addr)
-                sock.sendall(packet)
-                response = sock.recv(self.packet_size)
+            try:
+                self.sock.sendall(packet)
+                response = self.sock.recv(self.packet_size)
+            except socket.error:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect(self.server_addr)
+                self.sock.sendall(packet)
+                response = self.sock.recv(self.packet_size)
             self.result_queue.put(response)
 
 
@@ -61,18 +55,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num-packets', type=int, help='number of packets to send')
     parser.add_argument('--packet-size', type=int, help='packet size in bytes')
-    parser.add_argument('--concurrency', type=int, help='number of threads sending packets')
+    parser.add_argument('--num-threads', type=int, help='number of threads sending packets')
     parser.add_argument('--host', type=str, help='name of host packets will be sent to')
     parser.add_argument('--port', type=int, help='port number of host packets will be sent to')
     args = parser.parse_args()
 
-    packets_to_send = mp.Queue(args.num_packets + args.concurrency)
+    packets_to_send = mp.Queue(args.num_packets + args.num_threads)
     packets_received = mp.Queue(args.num_packets)
-    num_sender_procs = 5
-    num_threads_per_proc = args.concurrency // num_sender_procs
-    producers = [PacketMaker(packets_to_send, args.num_packets, args.packet_size, args.concurrency)]
-    senders = [PacketSenderMain(num_threads_per_proc, packets_to_send, packets_received, (args.host, args.port), args.packet_size)
-               for _ in range(num_sender_procs)]
+    producers = [PacketMaker(packets_to_send, args.num_packets, args.packet_size, args.num_threads)]
+    senders = [PacketSender(packets_to_send, packets_received, (args.host, args.port), args.packet_size)
+               for _ in range(args.num_threads)]
     start_time = time.time()
     for worker in senders + producers:
         worker.start()
